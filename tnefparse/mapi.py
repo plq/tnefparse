@@ -1,11 +1,10 @@
-
-""" MAPI attribute definitions """
+"""MAPI attribute definitions"""
 
 import logging
+
 logger = logging.getLogger(__name__)
 
-from .util import bytes_to_int
-
+from .util import bytes_to_int, parse_null_str
 
 SZMAPI_UNSPECIFIED = 0x0000  # MAPI Unspecified
 SZMAPI_NULL = 0x0001  # MAPI null property
@@ -21,119 +20,160 @@ SZMAPI_OBJECT = 0x000d  # MAPI embedded object
 SZMAPI_INT8BYTE = 0x0014  # MAPI 8 byte signed int
 SZMAPI_STRING = 0x001e  # MAPI string
 SZMAPI_UNICODE_STRING = 0x001f  # MAPI unicode-string (null terminated)
-# SZMAPI_PT_SYSTIME     = 0x001e # MAPI time (after 2038/01/17 22:14:07 or
-# before 1970/01/01 00:00:00)
+# SZMAPI_PT_SYSTIME = 0x001e # MAPI time (after 2038/01/17 22:14:07 or before
+#  1970/01/01 00:00:00)
 SZMAPI_SYSTIME = 0x0040  # MAPI time (64 bits)
 SZMAPI_CLSID = 0x0048  # MAPI OLE GUID
 SZMAPI_BINARY = 0x0102  # MAPI binary
 SZMAPI_BEATS_THE_HELL_OUTTA_ME = 0x0033
 
+MULTI_VALUE_FLAG = 0x1000
+GUID_EXISTS_FLAG = 0x8000
 
-def _decode_mapi(data):
-    """decode MAPI types"""
 
-    dataLen = len(data)
-    attrs = []
-    offset = 0
-    num_properties = bytes_to_int(data[offset:offset + 4])
-    offset += 4
-    #   logger.debug("%i MAPI properties" % num_properties)
+class TNEFMAPIObject(object):
+    def __init__(self, data):
+        """decode MAPI types"""
 
-    for i in range(num_properties):
+        self.attrs = []
+        try:
+            self._decode(data)
 
-        if offset >= dataLen:
-            logger.warn("Skipping property '%i'" % i)
-            continue
+        except Exception as e:
+            logger.exception('decode mapi exception %s', e)
 
-        attr_type = bytes_to_int(data[offset:offset + 2])
-        offset += 2
-        attr_name = bytes_to_int(data[offset:offset + 2])
-        offset += 2
+    def __str__(self):
+        return "<%s: " % (self.__class__.__name__,)
 
-        #         logger.debug("Attribute type: 0x%4.4x" % attr_type)
-        #         logger.debug("Attribute name: 0x%4.4x" % attr_name)
-        guid = ''
-        if attr_name >= 0x8000:
-            guid = '%32.32x' % bytes_to_int(data[offset:offset + 16])
-            offset += 16
-            kind = bytes_to_int(data[offset:offset + 4])
-            offset += 4
-            #            logger.debug("Kind: %8.8x" % kind)
-            if kind == 0:
-                # Skip the iid
-                offset += 4
-            else:
-                iidLen = bytes_to_int(data[offset:offset + 4])
-                offset += 4
-                q, r = divmod(iidLen, 4)
-                if r != 0:
-                    iidLen += (4 - r)
-                    offset += iidLen
+    def _decode(self, data):
+        dataLen = len(data)
+        attrs = self.attrs
+        offset = 0
 
-        attr_data = None
-        if attr_type == SZMAPI_SHORT:
-            attr_data = data[offset:offset + 2]
+        num_properties = bytes_to_int(data[offset:offset + 4]);
+        offset += 4
+
+        logger.info("%d MAPI properties", num_properties)
+        for i in range(num_properties):
+            if offset >= dataLen:
+                logger.warn("Wrong number of propertries")
+                break
+
+            attr_type = bytes_to_int(data[offset:offset + 2]);
             offset += 2
 
-        elif attr_type in (SZMAPI_INT, SZMAPI_FLOAT, SZMAPI_ERROR,
-                                                                SZMAPI_BOOLEAN):
-            attr_data = data[offset:offset + 4]
-            offset += 4
-        elif attr_type in (SZMAPI_DOUBLE, SZMAPI_APPTIME, SZMAPI_CURRENCY,
-                                               SZMAPI_INT8BYTE, SZMAPI_SYSTIME):
-            attr_data = data[offset:offset + 8]
-            offset += 8
+            attr_multi_value = bool(attr_type & MULTI_VALUE_FLAG);
+            attr_type &= ~MULTI_VALUE_FLAG  # TODO
+            logger.debug("Attribute type: 0x%04x", attr_type)
 
-        elif attr_type == SZMAPI_CLSID:
-            attr_data = data[offset:offset + 16]
-            offset += 16
+            attr_name = bytes_to_int(data[offset:offset + 2]);
+            offset += 2
 
-        elif attr_type in (SZMAPI_STRING, SZMAPI_UNICODE_STRING, SZMAPI_OBJECT,
-                                             SZMAPI_BINARY, SZMAPI_UNSPECIFIED):
-            num_vals = bytes_to_int(data[offset:offset + 4])
-            offset += 4
+            attr_guid_exists = bool(attr_name & GUID_EXISTS_FLAG);
+            attr_name &= ~GUID_EXISTS_FLAG
+            logger.debug("Attribute name: 0x%04x", attr_name)
+            guid = ''
 
-            # logger.debug("Number of values: %i" % num_vals)
-            attr_data = []
-            for j in range(num_vals):
-                # inlined version of bytes_to_int, for performance:
-                length = ord(offset[0]) + (ord(offset[1]) << 8) + (
-                ord(offset[2]) << 16) + (ord(offset[3]) << 24)
+            if attr_guid_exists:
+                guid = '%32.32x' % bytes_to_int(data[offset:offset + 16]);
+                offset += 16
+
+                kind = bytes_to_int(data[offset:offset + 4]);
                 offset += 4
-                q, r = divmod(length, 4)
-                if r != 0:
-                    length += (4 - r)
-                #               logger.debug("Length: %i" % length)
-                attr_data.append(data[offset:offset + length]);
-                offset += length
 
-        else:
-            logger.debug("## Unknown MAPI type 0x%4.4x" % attr_type)
-            logger.debug("Attribute type: 0x%4.4x" % attr_type)
-            logger.debug("Attribute name: 0x%4.4x" % attr_name)
-            break
+                logger.debug("Kind: %8.8x", kind)
+                if kind == 0:
+                    # Skip the iid
+                    offset += 4
+                else:
+                    iidLen = bytes_to_int(data[offset:offset + 4]);
+                    offset += 4
+                    q, r = divmod(iidLen, 4)
+                    if r != 0:
+                        iidLen += (4 - r)
+                        offset += iidLen
 
-        # logger.debug("Adding MAPI attribute %i to list" % (i+1))
-        attr = TNEFMAPI_Attribute(attr_type, attr_name, attr_data, guid)
-        attrs.append(attr)
+            attr_data = None
+            if attr_type == SZMAPI_SHORT:
+                attr_data = data[offset:offset + 2];
+                offset += 2
 
-    return attrs
+            elif attr_type == SZMAPI_BOOLEAN:
+                attr_data = bool(data[offset:offset + 4]);
+                offset += 4
 
+            elif attr_type in (SZMAPI_INT, SZMAPI_FLOAT,
+                               SZMAPI_ERROR,):  # TODO float is wrong here!
+                attr_data = data[offset:offset + 4];
+                offset += 4
 
-def decode_mapi(data):
-    retval = None
+            elif attr_type in (
+                    SZMAPI_DOUBLE, SZMAPI_APPTIME, SZMAPI_CURRENCY,
+                    SZMAPI_INT8BYTE,
+                    SZMAPI_SYSTIME):  # TODO: double is wrong here
+                attr_data = data[offset:offset + 8];
+                offset += 8
 
-    try:
-        retval = _decode_mapi(data)
-    except Exception as e:
-        logger.exception(e)
+            elif attr_type == SZMAPI_CLSID:
+                attr_data = data[offset:offset + 16];
+                offset += 16
 
-    return retval
+            elif attr_type in (
+                    SZMAPI_STRING, SZMAPI_UNICODE_STRING, SZMAPI_OBJECT,
+                    SZMAPI_BINARY, SZMAPI_UNSPECIFIED):
+
+                num_vals = bytes_to_int(data[offset:offset + 4]);
+                offset += 4
+                logger.debug("Number of values: %d", num_vals)
+                attr_data = []
+
+                for j in range(num_vals):
+                    if offset + 4 >= dataLen:
+                        break
+
+                    # length = bytes_to_int(data[offset:offset+4]);
+                    # offset += 4
+
+                    # inlined version of bytes_to_int, for performance:
+                    length = ord(data[offset]) + \
+                             (ord(data[offset + 1]) << 8) + \
+                             (ord(data[offset + 2]) << 16) + \
+                             (ord(data[offset + 3]) << 24)
+                    offset += 4
+
+                    logger.debug("Length: %d", length)
+                    q, r = divmod(length, 4)
+
+                    if r:
+                        length += 4 - r
+
+                    logger.debug("Length: %d", length)
+
+                    if attr_type == SZMAPI_UNICODE_STRING:
+                        attr_data.append(parse_null_str(
+                            unicode(data[offset:offset + length], 'utf-16')))
+
+                    elif attr_type == SZMAPI_STRING:
+                        attr_data.append(
+                            parse_null_str(data[offset:offset + length]))
+
+                    else:
+                        attr_data.append(data[offset:offset + length])
+
+                    offset += length
+
+            else:
+                logger.warn("## Unknown MAPI type 0x%04x", attr_type)
+                logger.warn("Attribute name: 0x%04x", attr_name)
+                break
+
+            logger.debug("Adding MAPI attribute %d to list", (i + 1))
+            attrs.append(
+                TNEFMAPI_Attribute(attr_type, attr_name, attr_data, guid))
 
 
 class TNEFMAPI_Attribute(object):
-    """represents a mapi attribute"""
-
+    "represents a mapi attribute"
     MAPI_ACKNOWLEDGEMENT_MODE = 0x0001
     MAPI_ALTERNATE_RECIPIENT_ALLOWED = 0x0002
     MAPI_AUTHORIZING_USERS = 0x0003
@@ -259,7 +299,7 @@ class TNEFMAPI_Attribute(object):
     MAPI_ORIGINATOR_AND_DL_EXPANSION_HISTORY = 0x1002
     MAPI_REPORTING_DL_NAME = 0x1003
     MAPI_REPORTING_MTA_CERTIFICATE = 0x1004
-
+    # ? = 0x1005
     MAPI_RTF_SYNC_BODY_CRC = 0x1006
     MAPI_RTF_SYNC_BODY_COUNT = 0x1007
     MAPI_RTF_SYNC_BODY_TAG = 0x1008
@@ -564,14 +604,16 @@ class TNEFMAPI_Attribute(object):
         MAPI_AUTHORIZING_USERS: "MAPI_AUTHORIZING_USERS",
         MAPI_AUTO_FORWARD_COMMENT: "MAPI_AUTO_FORWARD_COMMENT",
         MAPI_AUTO_FORWARDED: "MAPI_AUTO_FORWARDED",
-        MAPI_CONTENT_CONFIDENTIALITY_ALGORITHM_ID: "MAPI_CONTENT_CONFIDENTIALITY_ALGORITHM_ID",
+        MAPI_CONTENT_CONFIDENTIALITY_ALGORITHM_ID:
+            "MAPI_CONTENT_CONFIDENTIALITY_ALGORITHM_ID",
         MAPI_CONTENT_CORRELATOR: "MAPI_CONTENT_CORRELATOR",
         MAPI_CONTENT_IDENTIFIER: "MAPI_CONTENT_IDENTIFIER",
         MAPI_CONTENT_LENGTH: "MAPI_CONTENT_LENGTH",
         MAPI_CONTENT_RETURN_REQUESTED: "MAPI_CONTENT_RETURN_REQUESTED",
         MAPI_CONVERSATION_KEY: "MAPI_CONVERSATION_KEY",
         MAPI_CONVERSION_EITS: "MAPI_CONVERSION_EITS",
-        MAPI_CONVERSION_WITH_LOSS_PROHIBITED: "MAPI_CONVERSION_WITH_LOSS_PROHIBITED",
+        MAPI_CONVERSION_WITH_LOSS_PROHIBITED:
+            "MAPI_CONVERSION_WITH_LOSS_PROHIBITED",
         MAPI_CONVERTED_EITS: "MAPI_CONVERTED_EITS",
         MAPI_DEFERRED_DELIVERY_TIME: "MAPI_DEFERRED_DELIVERY_TIME",
         MAPI_DELIVER_TIME: "MAPI_DELIVER_TIME",
@@ -580,7 +622,8 @@ class TNEFMAPI_Attribute(object):
         MAPI_DL_EXPANSION_HISTORY: "MAPI_DL_EXPANSION_HISTORY",
         MAPI_DL_EXPANSION_PROHIBITED: "MAPI_DL_EXPANSION_PROHIBITED",
         MAPI_EXPIRY_TIME: "MAPI_EXPIRY_TIME",
-        MAPI_IMPLICIT_CONVERSION_PROHIBITED: "MAPI_IMPLICIT_CONVERSION_PROHIBITED",
+        MAPI_IMPLICIT_CONVERSION_PROHIBITED:
+            "MAPI_IMPLICIT_CONVERSION_PROHIBITED",
         MAPI_IMPORTANCE: "MAPI_IMPORTANCE",
         MAPI_IPM_ID: "MAPI_IPM_ID",
         MAPI_LATEST_DELIVERY_TIME: "MAPI_LATEST_DELIVERY_TIME",
@@ -588,18 +631,22 @@ class TNEFMAPI_Attribute(object):
         MAPI_MESSAGE_DELIVERY_ID: "MAPI_MESSAGE_DELIVERY_ID",
         MAPI_MESSAGE_SECURITY_LABEL: "MAPI_MESSAGE_SECURITY_LABEL",
         MAPI_OBSOLETED_IPMS: "MAPI_OBSOLETED_IPMS",
-        MAPI_ORIGINALLY_INTENDED_RECIPIENT_NAME: "MAPI_ORIGINALLY_INTENDED_RECIPIENT_NAME",
+        MAPI_ORIGINALLY_INTENDED_RECIPIENT_NAME:
+            "MAPI_ORIGINALLY_INTENDED_RECIPIENT_NAME",
         MAPI_ORIGINAL_EITS: "MAPI_ORIGINAL_EITS",
         MAPI_ORIGINATOR_CERTIFICATE: "MAPI_ORIGINATOR_CERTIFICATE",
-        MAPI_ORIGINATOR_DELIVERY_REPORT_REQUESTED: "MAPI_ORIGINATOR_DELIVERY_REPORT_REQUESTED",
+        MAPI_ORIGINATOR_DELIVERY_REPORT_REQUESTED:
+            "MAPI_ORIGINATOR_DELIVERY_REPORT_REQUESTED",
         MAPI_ORIGINATOR_RETURN_ADDRESS: "MAPI_ORIGINATOR_RETURN_ADDRESS",
         MAPI_PARENT_KEY: "MAPI_PARENT_KEY",
         MAPI_PRIORITY: "MAPI_PRIORITY",
         MAPI_ORIGIN_CHECK: "MAPI_ORIGIN_CHECK",
-        MAPI_PROOF_OF_SUBMISSION_REQUESTED: "MAPI_PROOF_OF_SUBMISSION_REQUESTED",
+        MAPI_PROOF_OF_SUBMISSION_REQUESTED:
+            "MAPI_PROOF_OF_SUBMISSION_REQUESTED",
         MAPI_READ_RECEIPT_REQUESTED: "MAPI_READ_RECEIPT_REQUESTED",
         MAPI_RECEIPT_TIME: "MAPI_RECEIPT_TIME",
-        MAPI_RECIPIENT_REASSIGNMENT_PROHIBITED: "MAPI_RECIPIENT_REASSIGNMENT_PROHIBITED",
+        MAPI_RECIPIENT_REASSIGNMENT_PROHIBITED:
+            "MAPI_RECIPIENT_REASSIGNMENT_PROHIBITED",
         MAPI_REDIRECTION_HISTORY: "MAPI_REDIRECTION_HISTORY",
         MAPI_RELATED_IPMS: "MAPI_RELATED_IPMS",
         MAPI_ORIGINAL_SENSITIVITY: "MAPI_ORIGINAL_SENSITIVITY",
@@ -649,19 +696,26 @@ class TNEFMAPI_Attribute(object):
         MAPI_ORIGINAL_SENDER_NAME: "MAPI_ORIGINAL_SENDER_NAME",
         MAPI_ORIGINAL_SENDER_ENTRYID: "MAPI_ORIGINAL_SENDER_ENTRYID",
         MAPI_ORIGINAL_SENDER_SEARCH_KEY: "MAPI_ORIGINAL_SENDER_SEARCH_KEY",
-        MAPI_ORIGINAL_SENT_REPRESENTING_NAME: "MAPI_ORIGINAL_SENT_REPRESENTING_NAME",
-        MAPI_ORIGINAL_SENT_REPRESENTING_ENTRYID: "MAPI_ORIGINAL_SENT_REPRESENTING_ENTRYID",
-        MAPI_ORIGINAL_SENT_REPRESENTING_SEARCH_KEY: "MAPI_ORIGINAL_SENT_REPRESENTING_SEARCH_KEY",
+        MAPI_ORIGINAL_SENT_REPRESENTING_NAME:
+            "MAPI_ORIGINAL_SENT_REPRESENTING_NAME",
+        MAPI_ORIGINAL_SENT_REPRESENTING_ENTRYID:
+            "MAPI_ORIGINAL_SENT_REPRESENTING_ENTRYID",
+        MAPI_ORIGINAL_SENT_REPRESENTING_SEARCH_KEY:
+            "MAPI_ORIGINAL_SENT_REPRESENTING_SEARCH_KEY",
         MAPI_START_DATE: "MAPI_START_DATE",
         MAPI_END_DATE: "MAPI_END_DATE",
         MAPI_OWNER_APPT_ID: "MAPI_OWNER_APPT_ID",
         MAPI_RESPONSE_REQUESTED: "MAPI_RESPONSE_REQUESTED",
         MAPI_SENT_REPRESENTING_ADDRTYPE: "MAPI_SENT_REPRESENTING_ADDRTYPE",
-        MAPI_SENT_REPRESENTING_EMAIL_ADDRESS: "MAPI_SENT_REPRESENTING_EMAIL_ADDRESS",
+        MAPI_SENT_REPRESENTING_EMAIL_ADDRESS:
+            "MAPI_SENT_REPRESENTING_EMAIL_ADDRESS",
         MAPI_ORIGINAL_SENDER_ADDRTYPE: "MAPI_ORIGINAL_SENDER_ADDRTYPE",
-        MAPI_ORIGINAL_SENDER_EMAIL_ADDRESS: "MAPI_ORIGINAL_SENDER_EMAIL_ADDRESS",
-        MAPI_ORIGINAL_SENT_REPRESENTING_ADDRTYPE: "MAPI_ORIGINAL_SENT_REPRESENTING_ADDRTYPE",
-        MAPI_ORIGINAL_SENT_REPRESENTING_EMAIL_ADDRESS: "MAPI_ORIGINAL_SENT_REPRESENTING_EMAIL_ADDRESS",
+        MAPI_ORIGINAL_SENDER_EMAIL_ADDRESS:
+            "MAPI_ORIGINAL_SENDER_EMAIL_ADDRESS",
+        MAPI_ORIGINAL_SENT_REPRESENTING_ADDRTYPE:
+            "MAPI_ORIGINAL_SENT_REPRESENTING_ADDRTYPE",
+        MAPI_ORIGINAL_SENT_REPRESENTING_EMAIL_ADDRESS:
+            "MAPI_ORIGINAL_SENT_REPRESENTING_EMAIL_ADDRESS",
         MAPI_CONVERSATION_TOPIC: "MAPI_CONVERSATION_TOPIC",
         MAPI_CONVERSATION_INDEX: "MAPI_CONVERSATION_INDEX",
         MAPI_ORIGINAL_DISPLAY_BCC: "MAPI_ORIGINAL_DISPLAY_BCC",
@@ -670,45 +724,59 @@ class TNEFMAPI_Attribute(object):
         MAPI_RECEIVED_BY_ADDRTYPE: "MAPI_RECEIVED_BY_ADDRTYPE",
         MAPI_RECEIVED_BY_EMAIL_ADDRESS: "MAPI_RECEIVED_BY_EMAIL_ADDRESS",
         MAPI_RCVD_REPRESENTING_ADDRTYPE: "MAPI_RCVD_REPRESENTING_ADDRTYPE",
-        MAPI_RCVD_REPRESENTING_EMAIL_ADDRESS: "MAPI_RCVD_REPRESENTING_EMAIL_ADDRESS",
+        MAPI_RCVD_REPRESENTING_EMAIL_ADDRESS:
+            "MAPI_RCVD_REPRESENTING_EMAIL_ADDRESS",
         MAPI_ORIGINAL_AUTHOR_ADDRTYPE: "MAPI_ORIGINAL_AUTHOR_ADDRTYPE",
-        MAPI_ORIGINAL_AUTHOR_EMAIL_ADDRESS: "MAPI_ORIGINAL_AUTHOR_EMAIL_ADDRESS",
-        MAPI_ORIGINALLY_INTENDED_RECIP_ADDRTYPE: "MAPI_ORIGINALLY_INTENDED_RECIP_ADDRTYPE",
-        MAPI_ORIGINALLY_INTENDED_RECIP_EMAIL_ADDRESS: "MAPI_ORIGINALLY_INTENDED_RECIP_EMAIL_ADDRESS",
+        MAPI_ORIGINAL_AUTHOR_EMAIL_ADDRESS:
+            "MAPI_ORIGINAL_AUTHOR_EMAIL_ADDRESS",
+        MAPI_ORIGINALLY_INTENDED_RECIP_ADDRTYPE:
+            "MAPI_ORIGINALLY_INTENDED_RECIP_ADDRTYPE",
+        MAPI_ORIGINALLY_INTENDED_RECIP_EMAIL_ADDRESS:
+            "MAPI_ORIGINALLY_INTENDED_RECIP_EMAIL_ADDRESS",
         MAPI_TRANSPORT_MESSAGE_HEADERS: "MAPI_TRANSPORT_MESSAGE_HEADERS",
         MAPI_DELEGATION: "MAPI_DELEGATION",
         MAPI_TNEF_CORRELATION_KEY: "MAPI_TNEF_CORRELATION_KEY",
         MAPI_BODY: "MAPI_BODY",
         MAPI_BODY_HTML: "MAPI_BODY_HTML",
         MAPI_REPORT_TEXT: "MAPI_REPORT_TEXT",
-        MAPI_ORIGINATOR_AND_DL_EXPANSION_HISTORY: "MAPI_ORIGINATOR_AND_DL_EXPANSION_HISTORY",
+        MAPI_ORIGINATOR_AND_DL_EXPANSION_HISTORY:
+            "MAPI_ORIGINATOR_AND_DL_EXPANSION_HISTORY",
         MAPI_REPORTING_DL_NAME: "MAPI_REPORTING_DL_NAME",
         MAPI_REPORTING_MTA_CERTIFICATE: "MAPI_REPORTING_MTA_CERTIFICATE",
-
+        #
         MAPI_RTF_SYNC_BODY_CRC: "MAPI_RTF_SYNC_BODY_CRC",
         MAPI_RTF_SYNC_BODY_COUNT: "MAPI_RTF_SYNC_BODY_COUNT",
         MAPI_RTF_SYNC_BODY_TAG: "MAPI_RTF_SYNC_BODY_TAG",
         MAPI_RTF_COMPRESSED: "MAPI_RTF_COMPRESSED",
         MAPI_RTF_SYNC_PREFIX_COUNT: "MAPI_RTF_SYNC_PREFIX_COUNT",
         MAPI_RTF_SYNC_TRAILING_COUNT: "MAPI_RTF_SYNC_TRAILING_COUNT",
-        MAPI_ORIGINALLY_INTENDED_RECIP_ENTRYID: "MAPI_ORIGINALLY_INTENDED_RECIP_ENTRYID",
+        MAPI_ORIGINALLY_INTENDED_RECIP_ENTRYID:
+            "MAPI_ORIGINALLY_INTENDED_RECIP_ENTRYID",
         MAPI_CONTENT_INTEGRITY_CHECK: "MAPI_CONTENT_INTEGRITY_CHECK",
         MAPI_EXPLICIT_CONVERSION: "MAPI_EXPLICIT_CONVERSION",
         MAPI_IPM_RETURN_REQUESTED: "MAPI_IPM_RETURN_REQUESTED",
         MAPI_MESSAGE_TOKEN: "MAPI_MESSAGE_TOKEN",
         MAPI_NDR_REASON_CODE: "MAPI_NDR_REASON_CODE",
         MAPI_NDR_DIAG_CODE: "MAPI_NDR_DIAG_CODE",
-        MAPI_NON_RECEIPT_NOTIFICATION_REQUESTED: "MAPI_NON_RECEIPT_NOTIFICATION_REQUESTED",
+        MAPI_NON_RECEIPT_NOTIFICATION_REQUESTED:
+            "MAPI_NON_RECEIPT_NOTIFICATION_REQUESTED",
         MAPI_DELIVERY_POINT: "MAPI_DELIVERY_POINT",
-        MAPI_ORIGINATOR_NON_DELIVERY_REPORT_REQUESTED: "MAPI_ORIGINATOR_NON_DELIVERY_REPORT_REQUESTED",
-        MAPI_ORIGINATOR_REQUESTED_ALTERNATE_RECIPIENT: "MAPI_ORIGINATOR_REQUESTED_ALTERNATE_RECIPIENT",
-        MAPI_PHYSICAL_DELIVERY_BUREAU_FAX_DELIVERY: "MAPI_PHYSICAL_DELIVERY_BUREAU_FAX_DELIVERY",
+        MAPI_ORIGINATOR_NON_DELIVERY_REPORT_REQUESTED:
+            "MAPI_ORIGINATOR_NON_DELIVERY_REPORT_REQUESTED",
+        MAPI_ORIGINATOR_REQUESTED_ALTERNATE_RECIPIENT:
+            "MAPI_ORIGINATOR_REQUESTED_ALTERNATE_RECIPIENT",
+        MAPI_PHYSICAL_DELIVERY_BUREAU_FAX_DELIVERY:
+            "MAPI_PHYSICAL_DELIVERY_BUREAU_FAX_DELIVERY",
         MAPI_PHYSICAL_DELIVERY_MODE: "MAPI_PHYSICAL_DELIVERY_MODE",
-        MAPI_PHYSICAL_DELIVERY_REPORT_REQUEST: "MAPI_PHYSICAL_DELIVERY_REPORT_REQUEST",
+        MAPI_PHYSICAL_DELIVERY_REPORT_REQUEST:
+            "MAPI_PHYSICAL_DELIVERY_REPORT_REQUEST",
         MAPI_PHYSICAL_FORWARDING_ADDRESS: "MAPI_PHYSICAL_FORWARDING_ADDRESS",
-        MAPI_PHYSICAL_FORWARDING_ADDRESS_REQUESTED: "MAPI_PHYSICAL_FORWARDING_ADDRESS_REQUESTED",
-        MAPI_PHYSICAL_FORWARDING_PROHIBITED: "MAPI_PHYSICAL_FORWARDING_PROHIBITED",
-        MAPI_PHYSICAL_RENDITION_ATTRIBUTES: "MAPI_PHYSICAL_RENDITION_ATTRIBUTES",
+        MAPI_PHYSICAL_FORWARDING_ADDRESS_REQUESTED:
+            "MAPI_PHYSICAL_FORWARDING_ADDRESS_REQUESTED",
+        MAPI_PHYSICAL_FORWARDING_PROHIBITED:
+            "MAPI_PHYSICAL_FORWARDING_PROHIBITED",
+        MAPI_PHYSICAL_RENDITION_ATTRIBUTES:
+            "MAPI_PHYSICAL_RENDITION_ATTRIBUTES",
         MAPI_PROOF_OF_DELIVERY: "MAPI_PROOF_OF_DELIVERY",
         MAPI_PROOF_OF_DELIVERY_REQUESTED: "MAPI_PROOF_OF_DELIVERY_REQUESTED",
         MAPI_RECIPIENT_CERTIFICATE: "MAPI_RECIPIENT_CERTIFICATE",
@@ -923,22 +991,26 @@ class TNEFMAPI_Attribute(object):
         MAPI_CONTACT_VERSION: "MAPI_CONTACT_VERSION",
         MAPI_CONTACT_ENTRYIDS: "MAPI_CONTACT_ENTRYIDS",
         MAPI_CONTACT_ADDRTYPES: "MAPI_CONTACT_ADDRTYPES",
-        MAPI_CONTACT_DEFAULT_ADDRESS_INDEX: "MAPI_CONTACT_DEFAULT_ADDRESS_INDEX",
+        MAPI_CONTACT_DEFAULT_ADDRESS_INDEX:
+            "MAPI_CONTACT_DEFAULT_ADDRESS_INDEX",
         MAPI_CONTACT_EMAIL_ADDRESSES: "MAPI_CONTACT_EMAIL_ADDRESSES",
         MAPI_COMPANY_MAIN_PHONE_NUMBER: "MAPI_COMPANY_MAIN_PHONE_NUMBER",
         MAPI_CHILDRENS_NAMES: "MAPI_CHILDRENS_NAMES",
         MAPI_HOME_ADDRESS_CITY: "MAPI_HOME_ADDRESS_CITY",
         MAPI_HOME_ADDRESS_COUNTRY: "MAPI_HOME_ADDRESS_COUNTRY",
         MAPI_HOME_ADDRESS_POSTAL_CODE: "MAPI_HOME_ADDRESS_POSTAL_CODE",
-        MAPI_HOME_ADDRESS_STATE_OR_PROVINCE: "MAPI_HOME_ADDRESS_STATE_OR_PROVINCE",
+        MAPI_HOME_ADDRESS_STATE_OR_PROVINCE:
+            "MAPI_HOME_ADDRESS_STATE_OR_PROVINCE",
         MAPI_HOME_ADDRESS_STREET: "MAPI_HOME_ADDRESS_STREET",
         MAPI_HOME_ADDRESS_POST_OFFICE_BOX: "MAPI_HOME_ADDRESS_POST_OFFICE_BOX",
         MAPI_OTHER_ADDRESS_CITY: "MAPI_OTHER_ADDRESS_CITY",
         MAPI_OTHER_ADDRESS_COUNTRY: "MAPI_OTHER_ADDRESS_COUNTRY",
         MAPI_OTHER_ADDRESS_POSTAL_CODE: "MAPI_OTHER_ADDRESS_POSTAL_CODE",
-        MAPI_OTHER_ADDRESS_STATE_OR_PROVINCE: "MAPI_OTHER_ADDRESS_STATE_OR_PROVINCE",
+        MAPI_OTHER_ADDRESS_STATE_OR_PROVINCE:
+            "MAPI_OTHER_ADDRESS_STATE_OR_PROVINCE",
         MAPI_OTHER_ADDRESS_STREET: "MAPI_OTHER_ADDRESS_STREET",
-        MAPI_OTHER_ADDRESS_POST_OFFICE_BOX: "MAPI_OTHER_ADDRESS_POST_OFFICE_BOX",
+        MAPI_OTHER_ADDRESS_POST_OFFICE_BOX:
+            "MAPI_OTHER_ADDRESS_POST_OFFICE_BOX",
         MAPI_STORE_PROVIDERS: "MAPI_STORE_PROVIDERS",
         MAPI_AB_PROVIDERS: "MAPI_AB_PROVIDERS",
         MAPI_TRANSPORT_PROVIDERS: "MAPI_TRANSPORT_PROVIDERS",
@@ -966,7 +1038,8 @@ class TNEFMAPI_Attribute(object):
         MAPI_OWN_STORE_ENTRYID: "MAPI_OWN_STORE_ENTRYID",
         MAPI_RESOURCE_PATH: "MAPI_RESOURCE_PATH",
         MAPI_STATUS_STRING: "MAPI_STATUS_STRING",
-        MAPI_X400_DEFERRED_DELIVERY_CANCEL: "MAPI_X400_DEFERRED_DELIVERY_CANCEL",
+        MAPI_X400_DEFERRED_DELIVERY_CANCEL:
+            "MAPI_X400_DEFERRED_DELIVERY_CANCEL",
         MAPI_HEADER_FOLDER_ENTRYID: "MAPI_HEADER_FOLDER_ENTRYID",
         MAPI_REMOTE_PROGRESS: "MAPI_REMOTE_PROGRESS",
         MAPI_REMOTE_PROGRESS_TEXT: "MAPI_REMOTE_PROGRESS_TEXT",
@@ -994,5 +1067,7 @@ class TNEFMAPI_Attribute(object):
         self.guid = guid
 
     def __str__(self):
-        aname = TNEFMAPI_Attribute.codes.get(self.name, "UNKNOWN!")
-        return "<ATTR: %s>" % aname
+        return "<%s(0x%04x): %s(0x%04x)=%.70s>" % (
+            self.__class__.__name__, self.attr_type,
+            TNEFMAPI_Attribute.codes.get(self.name, "UNKNOWN_%04x" % self.name),
+            self.name, repr(self.data))

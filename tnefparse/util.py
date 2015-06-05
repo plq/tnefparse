@@ -1,26 +1,37 @@
+"""
+Utility functions
+"""
 
 import logging
+
 logger = logging.getLogger(__name__)
 
-import sys
+from sys import hexversion
+from datetime import datetime
 
-"""utility functions"""
+
+def parse_null_str(data):
+    return data[0:data.find('\0')]
+
+
+def parse_date(data):
+    return datetime(*[bytes_to_int(data[n:n + 2]) for n in range(0, 12, 2)])
 
 
 # For compatibility, added two versions of bytes_to_int and checksum for now.
 # TODO: refactor?
 
-def bytes_to_int_py3(bytes=None):
+def bytes_to_int_py3(arr=None):
     """transform multi-byte values into integers, python3 version"""
     # NOTE: byte ordering & signage based on trial and error against tests
-    return int.from_bytes(bytes, byteorder="little", signed=False)
+    return int.from_bytes(arr, byteorder="little", signed=False)
 
 
-def bytes_to_int_py2(bytes=None):
+def bytes_to_int_py2(arr=None):
     """transform multi-byte values into integers, python2 version"""
     n = num = 0
-    for b in bytes:
-        num += (ord(b) << n)
+    for b in arr:
+        num += ord(b) << n
         n += 8
     return num
 
@@ -37,7 +48,7 @@ def checksum_py2(data):
     return sum([ord(x) for x in data]) & 0xFFFF
 
 
-if sys.hexversion > 0x03000000:
+if hexversion > 0x03000000:
     bytes_to_int = bytes_to_int_py3
     checksum = checksum_py3
 else:
@@ -47,21 +58,22 @@ else:
 
 def raw_mapi(dataLen, data):
     """debug raw MAPI data when decoding MAPI types"""
-
     loop = 0
     logger.debug("Raw MAPI Data:")
     while loop <= dataLen:
         if (loop + 16) < dataLen:
             logger.debug(
                 "%2.2x%2.2x %2.2x%2.2x %2.2x%2.2x %2.2x%2.2x %2.2x%2.2x "
-                "%2.2x%2.2x %2.2x%2.2x %2.2x%2.2x" %
-                (ord(data[loop]), ord(data[loop + 1]), ord(data[loop + 2]),
-                 ord(data[loop + 3]), ord(data[loop + 4]), ord(data[loop + 5]),
-                 ord(data[loop + 6]), ord(data[loop + 7]), ord(data[loop + 8]),
-                 ord(data[loop + 9]), ord(data[loop + 10]),
-                 ord(data[loop + 11]), ord(data[loop + 12]),
-                 ord(data[loop + 13]), ord(data[loop + 14]),
-                 ord(data[loop + 15])))
+                "%2.2x%2.2x %2.2x%2.2x %2.2x%2.2x" % (
+                    ord(data[loop]), ord(data[loop + 1]), ord(data[loop + 2]),
+                    ord(data[loop + 3]),
+                    ord(data[loop + 4]), ord(data[loop + 5]),
+                    ord(data[loop + 6]), ord(data[loop + 7]),
+                    ord(data[loop + 8]), ord(data[loop + 9]),
+                    ord(data[loop + 10]), ord(data[loop + 11]),
+                    ord(data[loop + 12]), ord(data[loop + 13]),
+                    ord(data[loop + 14]), ord(data[loop + 15]))
+            )
         loop += 16
     loop -= 16
 
