@@ -41,7 +41,7 @@ class TNEFMAPIObject(object):
             self._decode(data)
 
         except Exception as e:
-            logger.exception('decode mapi exception %s', e)
+            logger.exception(e)
 
     def __str__(self):
         return "<%s: " % (self.__class__.__name__,)
