@@ -1,10 +1,11 @@
 """MAPI attribute definitions"""
 
 import logging
-
 logger = logging.getLogger(__name__)
 
 from .util import bytes_to_int, parse_null_str
+from six import text_type
+
 
 SZMAPI_UNSPECIFIED = 0x0000  # MAPI Unspecified
 SZMAPI_NULL = 0x0001  # MAPI null property
@@ -151,7 +152,7 @@ class TNEFMAPIObject(object):
 
                     if attr_type == SZMAPI_UNICODE_STRING:
                         attr_data.append(parse_null_str(
-                            unicode(data[offset:offset + length], 'utf-16')))
+                            text_type(data[offset:offset + length], 'utf-16')))
 
                     elif attr_type == SZMAPI_STRING:
                         attr_data.append(

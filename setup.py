@@ -45,6 +45,9 @@ setup(
     license='LGPL',
 
     packages=find_packages(exclude=['ez_setup', 'examples', 'tests']),
+    install_requires=[
+        'six',
+    ],
     include_package_data=True,
     zip_safe=True,
     entry_points={
