@@ -1,3 +1,7 @@
+# python cruft
 *.py[co]
-*.egg-info
 
+# packaging cruft
+*.egg-info
+build
+dist
