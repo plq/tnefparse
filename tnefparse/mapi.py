@@ -133,14 +133,7 @@ class TNEFMAPIObject(object):
                     if offset + 4 >= dataLen:
                         break
 
-                    # length = bytes_to_int(data[offset:offset+4]);
-                    # offset += 4
-
-                    # inlined version of bytes_to_int, for performance:
-                    length = ord(data[offset]) + \
-                             (ord(data[offset + 1]) << 8) + \
-                             (ord(data[offset + 2]) << 16) + \
-                             (ord(data[offset + 3]) << 24)
+                    length = bytes_to_int(data[offset:offset+4])
                     offset += 4
 
                     logger.debug("Length: %d", length)
