@@ -51,7 +51,7 @@ class TNEFMAPIObject(object):
         attrs = self.attrs
         offset = 0
 
-        num_properties = bytes_to_int(data[offset:offset + 4]);
+        num_properties = bytes_to_int(data[offset:offset + 4])
         offset += 4
 
         logger.info("%d MAPI properties", num_properties)
@@ -60,26 +60,27 @@ class TNEFMAPIObject(object):
                 logger.warn("Wrong number of propertries")
                 break
 
-            attr_type = bytes_to_int(data[offset:offset + 2]);
+            attr_type = bytes_to_int(data[offset:offset + 2])
             offset += 2
 
-            attr_multi_value = bool(attr_type & MULTI_VALUE_FLAG);
+            # FIXME: unused?
+            # attr_multi_value = bool(attr_type & MULTI_VALUE_FLAG)
             attr_type &= ~MULTI_VALUE_FLAG  # TODO
             logger.debug("Attribute type: 0x%04x", attr_type)
 
-            attr_name = bytes_to_int(data[offset:offset + 2]);
+            attr_name = bytes_to_int(data[offset:offset + 2])
             offset += 2
 
-            attr_guid_exists = bool(attr_name & GUID_EXISTS_FLAG);
+            attr_guid_exists = bool(attr_name & GUID_EXISTS_FLAG)
             attr_name &= ~GUID_EXISTS_FLAG
             logger.debug("Attribute name: 0x%04x", attr_name)
             guid = ''
 
             if attr_guid_exists:
-                guid = '%32.32x' % bytes_to_int(data[offset:offset + 16]);
+                guid = '%32.32x' % bytes_to_int(data[offset:offset + 16])
                 offset += 16
 
-                kind = bytes_to_int(data[offset:offset + 4]);
+                kind = bytes_to_int(data[offset:offset + 4])
                 offset += 4
 
                 logger.debug("Kind: %8.8x", kind)
@@ -87,7 +88,7 @@ class TNEFMAPIObject(object):
                     # Skip the iid
                     offset += 4
                 else:
-                    iidLen = bytes_to_int(data[offset:offset + 4]);
+                    iidLen = bytes_to_int(data[offset:offset + 4])
                     offset += 4
                     q, r = divmod(iidLen, 4)
                     if r != 0:
@@ -96,34 +97,34 @@ class TNEFMAPIObject(object):
 
             attr_data = None
             if attr_type == SZMAPI_SHORT:
-                attr_data = data[offset:offset + 2];
+                attr_data = data[offset:offset + 2]
                 offset += 2
 
             elif attr_type == SZMAPI_BOOLEAN:
-                attr_data = bool(data[offset:offset + 4]);
+                attr_data = bool(data[offset:offset + 4])
                 offset += 4
 
             elif attr_type in (SZMAPI_INT, SZMAPI_FLOAT,
                                SZMAPI_ERROR,):  # TODO float is wrong here!
-                attr_data = data[offset:offset + 4];
+                attr_data = data[offset:offset + 4]
                 offset += 4
 
             elif attr_type in (
                     SZMAPI_DOUBLE, SZMAPI_APPTIME, SZMAPI_CURRENCY,
                     SZMAPI_INT8BYTE,
                     SZMAPI_SYSTIME):  # TODO: double is wrong here
-                attr_data = data[offset:offset + 8];
+                attr_data = data[offset:offset + 8]
                 offset += 8
 
             elif attr_type == SZMAPI_CLSID:
-                attr_data = data[offset:offset + 16];
+                attr_data = data[offset:offset + 16]
                 offset += 16
 
             elif attr_type in (
                     SZMAPI_STRING, SZMAPI_UNICODE_STRING, SZMAPI_OBJECT,
                     SZMAPI_BINARY, SZMAPI_UNSPECIFIED):
 
-                num_vals = bytes_to_int(data[offset:offset + 4]);
+                num_vals = bytes_to_int(data[offset:offset + 4])
                 offset += 4
                 logger.debug("Number of values: %d", num_vals)
                 attr_data = []
@@ -174,7 +175,7 @@ class TNEFMAPIObject(object):
 
 
 class TNEFMAPI_Attribute(object):
-    "represents a mapi attribute"
+    """represents a mapi attribute"""
     MAPI_ACKNOWLEDGEMENT_MODE = 0x0001
     MAPI_ALTERNATE_RECIPIENT_ALLOWED = 0x0002
     MAPI_AUTHORIZING_USERS = 0x0003
