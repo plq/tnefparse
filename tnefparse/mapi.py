@@ -57,7 +57,7 @@ class TNEFMAPIObject(object):
         logger.info("%d MAPI properties", num_properties)
         for i in range(num_properties):
             if offset >= dataLen:
-                logger.warn("Wrong number of propertries")
+                logger.warn("Wrong number of properties")
                 break
 
             attr_type = bytes_to_int(data[offset:offset + 2])
@@ -162,9 +162,11 @@ class TNEFMAPIObject(object):
                 logger.warn("Attribute name: 0x%04x", attr_name)
                 break
 
-            logger.debug("Adding MAPI attribute %d to list", (i + 1))
-            attrs.append(
-                TNEFMAPI_Attribute(attr_type, attr_name, attr_data, guid))
+            attr = TNEFMAPI_Attribute(attr_type, attr_name, attr_data, guid)
+
+            logger.debug("Adding MAPI attribute %d to list as %s", (i + 1),
+                                                                           attr)
+            attrs.append(attr)
 
 
 class TNEFMAPI_Attribute(object):
