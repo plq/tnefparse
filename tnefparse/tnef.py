@@ -7,9 +7,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 import os
+import six
 
 from tnefparse.util import bytes_to_int, checksum, parse_null_str, parse_date
 from tnefparse.mapi import TNEFMAPI_Attribute, TNEFMAPIObject
+
 
 ENCODING_MAP = {
     874: "TIS-620",
@@ -155,11 +157,29 @@ class TNEFAttachment(object):
                 break
 
         if attr is not None:
-            fn = attr.data
+            if isinstance(attr.data, (list, tuple)):
+                if len(attr.data) > 0:
+                    if isinstance(attr.data[0], six.text_type):
+                        fn = u''.join(attr.data)
+                    else:
+                        fn = b''.join(attr.data)
+
+                    logger.debug("Long filename list<len=%d> found: %r",
+                                                             len(attr.data), fn)
+
+                else:
+                    fn = self.name
+                    logger.debug("Long filename list empty, "
+                                                "reverted to self.name: %r", fn)
+            else:
+                fn = attr.data
+                logger.debug("Long filename string found: %r",  fn)
         else:
             fn = self.name
+            logger.debug("Long filename not found, "
+                                                "reverted to self.name: %r", fn)
 
-        return fn.split('\\')[-1]
+        return fn.rsplit('\\', 1)[-1]
 
     def add_attr(self, attribute):
         logger.debug("Attachment attr name: 0x%4.4x", attribute.name)
@@ -168,10 +188,11 @@ class TNEFAttachment(object):
             self.timestamp = attribute.data
 
         elif attribute.name == TNEF.ATTATTACHMENT:
-            self.mapi_attrs += attribute.data
+            mapi_obj = TNEFMAPIObject(attribute.data)
+            self.mapi_attrs.extend(mapi_obj.attrs)
 
         elif attribute.name == TNEF.ATTATTACHTITLE:
-            self.name = attribute.data
+            self.name = attribute.data.strip(b'\x00') # remove any NULLs
 
         elif attribute.name == TNEF.ATTATTACHDATA:
             self.data = attribute.data
