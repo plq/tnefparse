@@ -179,7 +179,8 @@ class TNEFAttachment(object):
             logger.debug("Long filename not found, "
                                                 "reverted to self.name: %r", fn)
 
-        return fn.rsplit('\\', 1)[-1]
+        if fn is not None:
+            return fn.rsplit('\\', 1)[-1]
 
     def add_attr(self, attribute):
         logger.debug("Attachment attr name: 0x%4.4x", attribute.name)
