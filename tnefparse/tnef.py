@@ -59,7 +59,7 @@ class TNEFObject(object):
         if do_checksum:
             calc_checksum = checksum(self.data)
             if calc_checksum != att_checksum:
-                logger.warn("Checksum: %s != %s", (calc_checksum, att_checksum))
+                logger.warning("Checksum: %s != %s", calc_checksum, att_checksum)
         else:
             calc_checksum = att_checksum
 
