@@ -144,6 +144,11 @@ class TNEFMAPIObject(object):
 
                     logger.debug("Length: %d", length)
 
+                    if (offset + length) > len(data):
+                        logger.warn("## Invalid data length %d", length)
+                        logger.warn("Attribute name: 0x%04x", attr_name)
+                        return
+
                     if attr_type == SZMAPI_UNICODE_STRING:
                         attr_data.append(parse_null_str(
                             text_type(data[offset:offset + length], 'utf-16')))
