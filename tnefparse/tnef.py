@@ -98,7 +98,7 @@ class TNEFObject(object):
 
 
 class TNEFAttachment(object):
-    """a TNEF attachment"""
+    """A TNEF Attachment"""
 
     SZMAPI_UNSPECIFIED = 0x0000  # MAPI Unspecified
     SZMAPI_NULL = 0x0001  # MAPI null property
