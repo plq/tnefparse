@@ -38,7 +38,7 @@ setup(
         'Development Status :: 4 - Beta',
         'Environment :: Console',
     ],
-    keywords='TNEF MAPI decoding mail email microsoft',
+    keywords='TNEF MAPI decoding mail email microsoft'.split(),
     author='Petri Savolainen',
     author_email='petri.savolainen@koodaamo.fi',
     url='https://github.com/koodaamo/tnefparse',
